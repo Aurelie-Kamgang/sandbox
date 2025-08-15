@@ -1,0 +1,25 @@
+# Répertoire interne Terraform
+.terraform/
+
+# Fichiers d’état
+*.tfstate
+*.tfstate.*
+
+# Fichiers de crash log
+crash.log
+crash.*.log
+
+# Fichiers de variables locales (souvent contiennent des secrets)
+*.tfvars
+*.tfvars.json
+
+# Fichiers de plan de déploiement
+*.plan
+*.tfplan
+
+# Lock file (optionnel : à garder si vous voulez verrouiller les versions de providers)
+.terraform.lock.hcl
+
+# Sortie temporaire de commandes
+terraform.rc
+terraform.d
