@@ -30,6 +30,7 @@ module "sg" {
     { from_port = 8080, to_port = 8080, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "k8s server" },
     { from_port = 30000, to_port = 32767, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "NodePort" },
     { from_port = 80, to_port = 80, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"], description = "HTTP" },
+    { from_port = 10250, to_port = 10250, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"], description = "kubelet" },
     { from_port = 443, to_port = 443, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"], description = "HTTPS" },
   ]
   egress_rules = [
