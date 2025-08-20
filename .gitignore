@@ -10,7 +10,7 @@ crash.log
 crash.*.log
 
 # Fichiers de variables locales (souvent contiennent des secrets)
-*.tfvars
+# *.tfvars
 *.tfvars.json
 
 # Fichiers de plan de déploiement

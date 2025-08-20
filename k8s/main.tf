@@ -27,7 +27,7 @@ module "sg" {
   ingress_rules = [
     { from_port = 22, to_port = 22, protocol = "tcp", cidr_blocks = var.ssh_cidr_blocks, description = "SSH" },
     { from_port = 6443, to_port = 6443, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "K8s API" },
-    { from_port = 8080, to_port = 8080, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "K3s server" },
+    { from_port = 8080, to_port = 8080, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "k8s server" },
     { from_port = 30000, to_port = 32767, protocol = "tcp", cidr_blocks = [var.vpc_cidr], description = "NodePort" },
     { from_port = 80, to_port = 80, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"], description = "HTTP" },
     { from_port = 443, to_port = 443, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"], description = "HTTPS" },
@@ -51,11 +51,12 @@ module "keypair" {
   key_path = local.private_key_path
 }
 
-module "k3s_master" {
+module "k8s_master" {
   source               = "./modules/ec2"
   ami_id               = data.aws_ami.ubuntu_24_04.id
   instance_type        = var.instance_type
   instance_role        = "master"
+  cluster_cidr         = var.cluster_cidr
   key_name             = local.key_name
   subnets              = module.vpc.public_subnets
   security_group_id    = module.sg.sg_id
@@ -66,12 +67,13 @@ module "k3s_master" {
   volume_size          = var.volume_size
   volume_type          = var.volume_type
   user_data_template   = "${path.module}/scripts/master-init.sh"
-  k3s_version          = var.k3s_version
+  k8s_version          = var.k8s_version
 }
 
-module "worker_master" {
+module "k8s_worker" {
   source               = "./modules/ec2"
   ami_id               = data.aws_ami.ubuntu_24_04.id
+  cluster_cidr         = var.cluster_cidr
   instance_type        = var.instance_type
   instance_role        = "worker"
   key_name             = local.key_name
@@ -84,6 +86,87 @@ module "worker_master" {
   volume_size          = var.volume_size
   volume_type          = var.volume_type
   user_data_template   = "${path.module}/scripts/worker-init.sh"
-  k3s_version          = var.k3s_version
-  master_ip = module.k3s_master.private_ip
+  k8s_version          = var.k8s_version
+}
+
+# Provisioner pour initialiser les masters
+resource "null_resource" "master_init" {
+  count = length(module.k8s_master.public_ips)
+
+  # Dépendance explicite pour s'assurer que les instances sont prêtes
+  depends_on = [module.k8s_master]
+
+  triggers = {
+    instance_ip = module.k8s_master.public_ips[count.index]
+  }
+
+  provisioner "file" {
+    source      = "scripts/master-init.sh"
+    destination = "/tmp/master-init.sh"
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file(local.private_key_path)
+      host        = self.triggers.instance_ip
+      timeout     = "5m"
+    }
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/master-init.sh",
+      "REGION=${var.region} SSM_PARAM=${var.ssm_param_name} K8S_VERSION=${var.k8s_version} CLUSTER_CIDR=${var.cluster_cidr} bash /tmp/master-init.sh"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file(local.private_key_path)
+      host        = self.triggers.instance_ip
+      timeout     = "10m"
+    }
+  }
+}
+
+# Provisioner pour initialiser les workers
+resource "null_resource" "worker_init" {
+  count = length(module.k8s_worker.public_ips)
+
+  # Dépendance pour s'assurer que les workers sont initialisés après les masters
+  depends_on = [module.k8s_worker, null_resource.master_init]
+
+  triggers = {
+    instance_ip = module.k8s_worker.public_ips[count.index]
+    # Trigger sur le master pour redéployer les workers si le master change
+    master_ips = join(",", module.k8s_master.public_ips)
+  }
+
+  provisioner "file" {
+    source      = "scripts/worker-init.sh"
+    destination = "/tmp/worker-init.sh"
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file(local.private_key_path)
+      host        = self.triggers.instance_ip
+      timeout     = "5m"
+    }
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/worker-init.sh",
+      "REGION=${var.region} SSM_PARAM=${var.ssm_param_name} K8S_VERSION=${var.k8s_version} CLUSTER_CIDR=${var.cluster_cidr} MASTER_IP=${module.k8s_master.public_ips[0]} bash /tmp/worker-init.sh"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file(local.private_key_path)
+      host        = self.triggers.instance_ip
+      timeout     = "10m"
+    }
+  }
 }

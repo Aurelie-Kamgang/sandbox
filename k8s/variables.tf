@@ -2,7 +2,10 @@ variable "instance_type" {}
 variable "region" {}
 variable "ssm_param_name" {}
 
-variable "k3s_version" {
+variable "cluster_cidr" {
+
+}
+variable "k8s_version" {
 
 }
 variable "public_subnets" {
